@@ -34,7 +34,7 @@ pip install flask"
 3. Menjalankan Server
 
 Pastikan file app.py dan planetarium.html berada dalam satu folder yang sama. Jalankan perintah berikut di dalam folder tersebut:
-Bash
+```Bash
 
 python app.py
 

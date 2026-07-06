@@ -34,10 +34,9 @@ pip install flask
 3. Menjalankan Server
 
 Pastikan file app.py dan planetarium.html berada dalam satu folder yang sama. Jalankan perintah berikut di dalam folder tersebut:
-Bash
-
+```Bash
 python app.py
-
+```
 Setelah muncul tulisan --- Server Berjalan! ---, buka browser favoritmu dan akses alamat berikut:
 👉 http://127.0.0.1:5000
 

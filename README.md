@@ -28,13 +28,13 @@ Pastikan kamu sudah menginstal **Python 3** di komputermu.
 
 ### 2. Instalasi Flask
 Buka terminal atau command prompt, lalu instal pustaka Flask dengan perintah:
-bash
+```bash
 pip install flask"
-
+```
 3. Menjalankan Server
 
 Pastikan file app.py dan planetarium.html berada dalam satu folder yang sama. Jalankan perintah berikut di dalam folder tersebut:
-```Bash
+Bash
 
 python app.py
 

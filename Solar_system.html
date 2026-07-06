@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shinta's Cosmic Hand v2.3 (Stable Zoom)</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .info-card {
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px;
+            border-left: 5px solid #4facfe;
+            border-radius: 8px;
+            display: none;
+            max-width: 300px;
+            box-shadow: 0 0 25px rgba(79, 172, 254, 0.4);
+            backdrop-filter: blur(5px);
+        }
+        video {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 200px;
+            height: 150px;
+            border-radius: 12px;
+            border: 2px solid #555;
+            transform: scaleX(-1);
+            opacity: 0.6;
+        }
+        canvas { display: block; }
+        #status-indicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #4facfe;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        /* Tambahan UI untuk pesan error jika kamera gagal */
+        #error-msg {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff4444;
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border-radius: 10px;
+            display: none;
+            text-align: center;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="error-msg">
+        <h3>Akses Kamera Gagal :(</h3>
+        <p>Pastikan kamu memberikan izin akses kamera atau jalankan file ini menggunakan server (localhost/HTTPS).</p>
+    </div>
+
+    <div id="ui-layer">
+        <h1>Cosmic Controller</h1>
+        <p>🖐️ Buka tangan: Muncul | ☝️ Tunjuk: Pilih | 👌 Cubit: Zoom (Tahan)</p>
+        <div id="planet-info" class="info-card">
+            <h2 id="planet-name">Planet</h2>
+            <p id="planet-desc">Deskripsi planet...</p>
+        </div>
+    </div>
+
+    <div id="status-indicator">Inisialisasi...</div>
+    <video id="webcam" autoplay playsinline></video>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
+
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const infoCard = document.getElementById('planet-info');
+        const pName = document.getElementById('planet-name');
+        const pDesc = document.getElementById('planet-desc');
+        const statusInd = document.getElementById('status-indicator');
+        const errorDiv = document.getElementById('error-msg');
+
+        const planetData = [
+            { name: "Merkurius", color: 0xaaaaaa, size: 3, distance: 50, desc: "Planet terkecil dan paling dekat dengan matahari." },
+            { name: "Venus", color: 0xffcc00, size: 5, distance: 80, desc: "Suhu permukaannya sangat panas karena atmosfer tebal." },
+            { name: "Bumi", color: 0x0066ff, size: 5.5, distance: 110, desc: "Satu-satunya tempat yang kita kenal memiliki kehidupan." },
+            { name: "Mars", color: 0xff3300, size: 4.5, distance: 140, desc: "Planet merah yang memiliki gunung tertinggi di tata surya." },
+            { name: "Jupiter", color: 0xffa500, size: 12, distance: 190, desc: "Raksasa gas dengan massa dua kali lipat planet lainnya." }
+        ];
+
+        let scene, camera, renderer, sun, pointer;
+        let planets = [];
+        let stars, solarSystemGroup;
+        let isPinching = false;
+        let selectedPlanet = null;
+        
+        const defaultCamPos = new THREE.Vector3(0, 200, 400);
+        const targetCamPos = new THREE.Vector3().copy(defaultCamPos);
+        const currentLookAt = new THREE.Vector3(0, 0, 0);
+        const targetLookAt = new THREE.Vector3(0, 0, 0);
+
+        function initThree() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 4000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            solarSystemGroup = new THREE.Group();
+            scene.add(solarSystemGroup);
+
+            const starGeo = new THREE.BufferGeometry();
+            const starCoords = [];
+            for(let i=0; i<12000; i++) {
+                starCoords.push((Math.random()-0.5)*3000, (Math.random()-0.5)*3000, (Math.random()-0.5)*3000);
+            }
+            starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starCoords, 3));
+            stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.9 }));
+            scene.add(stars);
+
+            const sunGeo = new THREE.SphereGeometry(18, 32, 32);
+            const sunMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+            sun = new THREE.Mesh(sunGeo, sunMat);
+            solarSystemGroup.add(sun);
+
+            const pointerGeo = new THREE.TorusGeometry(5, 0.5, 16, 100);
+            const pointerMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 });
+            pointer = new THREE.Mesh(pointerGeo, pointerMat);
+            pointer.visible = false;
+            scene.add(pointer);
+
+            planetData.forEach(data => {
+                const orbitGeo = new THREE.RingGeometry(data.distance - 0.5, data.distance + 0.5, 128);
+                const orbitMat = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.12, transparent: true, side: THREE.DoubleSide });
+                const orbitRing = new THREE.Mesh(orbitGeo, orbitMat);
+                orbitRing.rotation.x = Math.PI / 2;
+                solarSystemGroup.add(orbitRing);
+
+                const pGeo = new THREE.SphereGeometry(data.size, 32, 32);
+                const pMat = new THREE.MeshPhongMaterial({ color: data.color, shininess: 50 });
+                const pMesh = new THREE.Mesh(pGeo, pMat);
+                
+                const pGroup = new THREE.Group();
+                solarSystemGroup.add(pGroup);
+                pGroup.add(pMesh);
+                pMesh.position.x = data.distance;
+
+                planets.push({ mesh: pMesh, group: pGroup, data, angle: Math.random() * Math.PI * 2 });
+            });
+
+            const pLight = new THREE.PointLight(0xffffff, 2.5, 1000);
+            scene.add(pLight);
+            scene.add(new THREE.AmbientLight(0x555555));
+
+            camera.position.copy(defaultCamPos);
+            solarSystemGroup.visible = false;
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.75,
+            minTrackingConfidence: 0.75
+        });
+
+        hands.onResults(onResults);
+
+        function onResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                const isHandOpen = landmarks[8].y < landmarks[5].y && landmarks[12].y < landmarks[9].y;
+                solarSystemGroup.visible = isHandOpen;
+                
+                const ptrX = (landmarks[8].x - 0.5) * 500;
+                const ptrY = -(landmarks[8].y - 0.5) * 350;
+                pointer.position.set(ptrX, ptrY, 50);
+                
+                const isPointing = landmarks[8].y < landmarks[6].y;
+                pointer.visible = isPointing && isHandOpen;
+
+                const dx = landmarks[4].x - landmarks[8].x;
+                const dy = landmarks[4].y - landmarks[8].y;
+                const pinchDist = Math.sqrt(dx*dx + dy*dy);
+                const currentPinch = pinchDist < 0.08; 
+
+                if (isHandOpen && isPointing) {
+                    if (!isPinching) {
+                        checkSelection(ptrX, ptrY);
+                    }
+                    if (currentPinch && selectedPlanet) {
+                        isPinching = true;
+                        statusInd.innerText = "ZOOM: " + selectedPlanet.data.name;
+                    } else {
+                        isPinching = false;
+                        statusInd.innerText = "Sistem Aktif";
+                    }
+                }
+            } else {
+                solarSystemGroup.visible = false;
+                pointer.visible = false;
+                isPinching = false;
+                statusInd.innerText = "Tangan Tidak Terdeteksi";
+            }
+        }
+
+        function checkSelection(x, y) {
+            let nearest = null;
+            let minDist = 50; 
+            planets.forEach(p => {
+                const worldPos = new THREE.Vector3();
+                p.mesh.getWorldPosition(worldPos);
+                const d = Math.hypot(worldPos.x - x, worldPos.y - y);
+                if (d < minDist) {
+                    minDist = d;
+                    nearest = p;
+                }
+            });
+            if (nearest) {
+                selectedPlanet = nearest;
+                pName.innerText = nearest.data.name;
+                pDesc.innerText = nearest.data.desc;
+                infoCard.style.display = 'block';
+                pointer.material.color.set(0xffff00);
+            } else if (!isPinching) {
+                selectedPlanet = null;
+                infoCard.style.display = 'none';
+                pointer.material.color.set(0x00ffff);
+            }
+        }
+
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => { 
+                try {
+                    await hands.send({ image: videoElement }); 
+                    errorDiv.style.display = 'none'; // Sembunyikan error jika berhasil
+                } catch (e) {
+                    errorDiv.style.display = 'block'; // Tampilkan error jika gagal
+                }
+            },
+            width: 640, height: 480
+        });
+
+        // Menangani error jika izin kamera ditolak secara eksplisit
+        cameraUtils.start().catch(() => {
+            errorDiv.style.display = 'block';
+            statusInd.innerText = "Error Kamera";
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            stars.rotation.y += 0.0001;
+
+            if (solarSystemGroup.visible) {
+                planets.forEach(p => {
+                    const speed = 0.003 + (0.007 * (1 - p.data.distance / 250));
+                    p.angle += speed;
+                    p.mesh.position.x = Math.cos(p.angle) * p.data.distance;
+                    p.mesh.position.z = Math.sin(p.angle) * p.data.distance;
+                    p.mesh.rotation.y += 0.02;
+                });
+                sun.rotation.y += 0.005;
+
+                if (isPinching && selectedPlanet) {
+                    const planetPos = new THREE.Vector3();
+                    selectedPlanet.mesh.getWorldPosition(planetPos);
+                    targetCamPos.set(planetPos.x, planetPos.y + 30, planetPos.z + 80);
+                    targetLookAt.copy(planetPos);
+                } else {
+                    targetCamPos.copy(defaultCamPos);
+                    targetLookAt.set(0, 0, 0);
+                }
+
+                camera.position.lerp(targetCamPos, 0.08);
+                currentLookAt.lerp(targetLookAt, 0.08);
+                camera.lookAt(currentLookAt);
+            }
+            renderer.render(scene, camera);
+        }
+
+        initThree();
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

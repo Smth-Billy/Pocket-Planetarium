@@ -29,7 +29,7 @@ Pastikan kamu sudah menginstal **Python 3** di komputermu.
 ### 2. Instalasi Flask
 Buka terminal atau command prompt, lalu instal pustaka Flask dengan perintah:
 ```bash
-pip install flask"
+pip install flask
 ```
 3. Menjalankan Server
 
